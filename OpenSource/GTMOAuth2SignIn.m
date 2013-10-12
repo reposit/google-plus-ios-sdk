@@ -15,7 +15,6 @@
 
 #if GTM_INCLUDE_OAUTH2 || !GDATA_REQUIRE_SERVICE_INCLUDES
 
-#define GTMOAUTH2SIGNIN_DEFINE_GLOBALS 1
 #import "GTMOAuth2SignIn.h"
 
 // we'll default to timing out if the network becomes unreachable for more
@@ -55,6 +54,7 @@ finishedWithFetcher:(GTMHTTPFetcher *)fetcher
 - (void)infoFetcher:(GTMHTTPFetcher *)fetcher
    finishedWithData:(NSData *)data
               error:(NSError *)error;
++ (NSData *)decodeWebSafeBase64:(NSString *)base64Str;
 #endif
 
 - (void)closeTheWindow;
@@ -64,8 +64,6 @@ finishedWithFetcher:(GTMHTTPFetcher *)fetcher
 - (void)reachabilityTarget:(SCNetworkReachabilityRef)reachabilityRef
               changedFlags:(SCNetworkConnectionFlags)flags;
 - (void)reachabilityTimerFired:(NSTimer *)timer;
-
-+ (NSData *)decodeWebSafeBase64:(NSString *)base64Str;
 @end
 
 @implementation GTMOAuth2SignIn
@@ -107,7 +105,7 @@ finishedWithFetcher:(GTMHTTPFetcher *)fetcher
 }
 
 + (NSURL *)googleUserInfoURL {
-  NSString *urlStr = @"https://www.googleapis.com/oauth2/v1/userinfo";
+  NSString *urlStr = @"https://www.googleapis.com/oauth2/v3/userinfo";
   return [NSURL URLWithString:urlStr];
 }
 #endif
@@ -304,6 +302,10 @@ finishedWithFetcher:(GTMHTTPFetcher *)fetcher
 // utility for making a request from an old URL with some additional parameters
 + (NSMutableURLRequest *)mutableURLRequestWithURL:(NSURL *)oldURL
                                       paramString:(NSString *)paramStr {
+  if ([paramStr length] == 0) {
+    return [NSMutableURLRequest requestWithURL:oldURL];
+  }
+
   NSString *query = [oldURL query];
   if ([query length] > 0) {
     query = [query stringByAppendingFormat:@"&%@", paramStr];
@@ -654,21 +656,24 @@ finishedWithFetcher:(GTMHTTPFetcher *)fetcher
   GTMOAuth2Authentication *auth = self.authentication;
   NSDictionary *profileDict = [[auth class] dictionaryWithJSONData:data];
   if (profileDict) {
+    // Profile dictionary keys mostly conform to
+    // http://openid.net/specs/openid-connect-messages-1_0.html#StandardClaims
+
     self.userProfile = profileDict;
 
     // Save the ID into the auth object
-    NSString *identifier = [profileDict objectForKey:@"id"];
-    [auth setUserID:identifier];
+    NSString *subjectID = [profileDict objectForKey:@"sub"];
+    [auth setUserID:subjectID];
 
     // Save the email into the auth object
     NSString *email = [profileDict objectForKey:@"email"];
     [auth setUserEmail:email];
 
-    // The verified_email key is a boolean NSNumber in the userinfo
+    // The email_verified key is a boolean NSNumber in the userinfo
     // endpoint response, but it is a string like "true" in the id_token.
     // We want to consistently save it as a string of the boolean value,
     // like @"1".
-    id verified = [profileDict objectForKey:@"verified_email"];
+    id verified = [profileDict objectForKey:@"email_verified"];
     if ([verified isKindOfClass:[NSString class]]) {
       verified = [NSNumber numberWithBool:[verified boolValue]];
     }

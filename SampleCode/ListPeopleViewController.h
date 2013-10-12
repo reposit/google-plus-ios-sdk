@@ -18,21 +18,25 @@
 
 #import <UIKit/UIKit.h>
 
+@class ListPeopleViewController;
+
+@protocol ListPeopleViewControllerDelegate <NSObject>
+
+// Will be called on the delegate if |allowSelection| is set to YES and the user finish selecting
+// people.
+- (void)viewController:(ListPeopleViewController *)viewController
+         didPickPeople:(NSArray *)people;
+
+@end
+
 // A view controller for listing people that are visible to this sample app.
 // The open-source GTLPlus libraries are required.
-@interface ListPeopleViewController : UIViewController<
-    UITableViewDelegate,
-    UITableViewDataSource>
+@interface ListPeopleViewController : UITableViewController
 
-// A label to display the result of the listing people action.
-@property (retain, nonatomic) IBOutlet UILabel *peopleStatus;
-// The table that displays a list of people that is visible to this sample app.
-@property (retain, nonatomic) IBOutlet UITableView *peopleTable;
+// Whether or not the view controller allow people selection.
+@property (nonatomic, assign) BOOL allowSelection;
 
-// A list of people that is visible to this sample app.
-@property (retain, nonatomic) NSArray *peopleList;
-// A list of people profile images that we will prefetch that is
-// visible to this sample app.
-@property (retain, nonatomic) NSMutableArray *peopleImageList;
+// A delegate for getting the callback after selecting people.
+@property (nonatomic, weak) id<ListPeopleViewControllerDelegate> delegate;
 
 @end

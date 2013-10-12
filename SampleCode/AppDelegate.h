@@ -23,8 +23,8 @@
 @interface AppDelegate : UIResponder<UIApplicationDelegate>
 
 // The sample app's |UIWindow|.
-@property (retain, nonatomic) UIWindow *window;
+@property(strong, nonatomic) UIWindow *window;
 // The navigation controller.
-@property (retain, nonatomic) UINavigationController *navigationController;
+@property(strong, nonatomic) UINavigationController *navigationController;
 
 @end

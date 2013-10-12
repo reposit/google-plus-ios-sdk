@@ -18,685 +18,553 @@
 
 #import "ShareViewController.h"
 
+#import "DataPickerState.h"
+#import "DataPickerViewController.h"
+#import "EditableCell.h"
+#import "ListPeopleViewController.h"
+#import "ShareActivity.h"
+#import "ShareBundleMediaPickerController.h"
+#import "ShareConfiguration.h"
+
 #import <GoogleOpenSource/GoogleOpenSource.h>
 #import <GooglePlus/GooglePlus.h>
 #import <QuartzCore/QuartzCore.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 
-@interface ShareViewController() <GPPShareDelegate>
-- (void)animateKeyboard:(NSNotification *)notification
-             shouldShow:(BOOL)shouldShow;
-- (void)layout;
-- (void)placeView:(UIView *)view x:(CGFloat)x y:(CGFloat)y;
-- (void)populateTextFields;
+typedef enum {
+  kShareOptionsSection,
+  kURLSection,
+  kDeepLinkSection,
+  kCallToActionSection,
+  kMediaSection
+} SectionOrdering;
+
+static NSString * const kCellTypeEditable = @"editable";
+static NSString * const kCellTypeSwitch = @"switch";
+static NSString * const kCellTypeDrilldown = @"drilldown";
+
+static NSString * const kAddURLLabel = @"Add URL attachment";
+static NSString * const kAddCallToActionLabel = @"Add call-to-action";
+static NSString * const kAddDeepLinkLabel = @"Add deep link";
+static NSString * const kAddMediaLabel = @"Add media";
+
+static NSString * const kPrefillAudiencesDrilldownLabel = @"Pre-fill audiences";
+static NSString * const kCallToActionLabelDrilldownLabel = @"Label";
+static NSString * const kAttachAssetFromLibraryDrilldownLabel = @"Attach asset from library";
+static NSString * const kAttachAssetFromBundleDrilldownLabel = @"Attach asset from bundle";
+
+@interface ShareViewController () <
+    GPPShareDelegate,
+    UINavigationControllerDelegate,
+    UIImagePickerControllerDelegate,
+    ShareBundleMediaPickerControllerDelegate,
+    ListPeopleViewControllerDelegate>
+
 @end
 
-@implementation ShareViewController
-
-@synthesize callToActions = callToActions_;
-@synthesize selectedCallToAction = selectedCallToAction_;
-@synthesize callToActionPickerView = callToActionPickerView_;
-@synthesize addContentDeepLinkSwitch = addContentDeepLinkSwitch_;
-@synthesize contentDeepLinkDescription = contentDeepLinkDescription_;
-@synthesize contentDeepLinkID = contentDeepLinkID_;
-@synthesize contentDeepLinkTitle = contentDeepLinkTitle_;
-@synthesize contentDeepLinkThumbnailURL = contentDeepLinkThumbnailURL_;
-@synthesize sharePrefillText = sharePrefillText_;
-@synthesize shareURL = shareURL_;
-@synthesize shareStatus = shareStatus_;
-@synthesize shareToolbar = shareToolbar_;
-@synthesize shareScrollView = shareScrollView_;
-@synthesize shareView = shareView_;
-@synthesize addContentDeepLinkLabel = addContentDeepLinkLabel_;
-@synthesize urlToShareLabel = urlToShareLabel_;
-@synthesize prefillTextLabel = prefillTextLabel_;
-@synthesize contentDeepLinkIDLabel = contentDeepLinkIDLabel_;
-@synthesize contentDeepLinkTitleLabel = contentDeepLinkTitleLabel_;
-@synthesize contentDeepLinkDescriptionLabel =
-    contentDeepLinkDescriptionLabel_;
-@synthesize contentDeepLinkThumbnailURLLabel =
-    contentDeepLinkThumbnailURLLabel_;
-@synthesize shareButton = shareButton_;
-@synthesize urlForContentDeepLinkMetadataSwitch =
-    urlForContentDeepLinkMetadataSwitch_;
-@synthesize urlForContentDeepLinkMetadataLabel =
-    urlForContentDeepLinkMetadataLabel_;
-@synthesize addCallToActionButtonSwitch = addCallToActionButtonSwitch_;
-@synthesize addCallToActionButtonLabel = addCallToActionButtonLabel_;
-
-- (void)dealloc {
-  [callToActions_ release];
-  [selectedCallToAction_ release];
-  [callToActionPickerView_ release];
-  [addContentDeepLinkSwitch_ release];
-  [contentDeepLinkID_ release];
-  [contentDeepLinkTitle_ release];
-  [contentDeepLinkDescription_ release];
-  [contentDeepLinkThumbnailURL_ release];
-  [sharePrefillText_ release];
-  [shareURL_ release];
-  [shareStatus_ release];
-  [shareToolbar_ release];
-  [shareScrollView_ release];
-  [shareView_ release];
-  [addContentDeepLinkLabel_ release];
-  [urlToShareLabel_ release];
-  [prefillTextLabel_ release];
-  [contentDeepLinkIDLabel_ release];
-  [contentDeepLinkTitleLabel_ release];
-  [contentDeepLinkDescriptionLabel_ release];
-  [contentDeepLinkThumbnailURLLabel_ release];
-  [shareButton_ release];
-  [urlForContentDeepLinkMetadataSwitch_ release];
-  [urlForContentDeepLinkMetadataLabel_ release];
-  [addCallToActionButtonSwitch_ release];
-  [addCallToActionButtonLabel_ release];
-  [super dealloc];
+@implementation ShareViewController {
+  // Keeps track of the current user settings for sharing.
+  ShareConfiguration *_shareConfiguration;
+  // The popover shown when accessing the Asset Library on the iPad
+  UIPopoverController *_assetLibraryPopover;
 }
 
-#pragma mark - View lifecycle
+- (void)gppInit {
+  _shareConfiguration = [ShareConfiguration sharedInstance];
+
+  [GPPShare sharedInstance].delegate = self;
+}
+
+- (id)initWithNibName:(NSString *)nibNameOrNil
+               bundle:(NSBundle *)nibBundleOrNil {
+  self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
+  if (self) {
+    [self gppInit];
+  }
+  return self;
+}
+
+- (id)initWithCoder:(NSCoder *)aDecoder {
+  self = [super initWithCoder:aDecoder];
+  if (self) {
+    [self gppInit];
+  }
+  return self;
+}
 
 - (void)viewDidLoad {
-  // Set up Google+ share dialog.
-  [GPPShare sharedInstance].delegate = self;
+  // Configure share button graphics.
+  [[_shareButton layer] setCornerRadius:5];
+  [[_shareButton layer] setMasksToBounds:YES];
+  UIColor *borderColor = [UIColor colorWithWhite:203.0f/255.0f
+                                           alpha:1.0];
+  [[_shareButton layer] setBorderColor:[borderColor CGColor]];
+  [[_shareButton layer] setBorderWidth:1.0];
 
-  [addCallToActionButtonSwitch_ setOn:NO];
-  [addContentDeepLinkSwitch_ setOn:NO];
+  // The right bar button item launches the share sheet, which includes
+  // a G+ share icon.
+  self.navigationItem.rightBarButtonItem =
+      [[UIBarButtonItem alloc]
+          initWithBarButtonSystemItem:UIBarButtonSystemItemAction
+                               target:self
+                               action:@selector(shareSheetButton:)];
+
+  // If we are not logged in, then call-to-action is disabled.
   if (![GPPSignIn sharedInstance].authentication ||
       ![[GPPSignIn sharedInstance].scopes containsObject:
           kGTLAuthScopePlusLogin]) {
-    addCallToActionButtonLabel_.text = @"Sign in for call-to-action";
-    addCallToActionButtonSwitch_.enabled = NO;
+    _shareConfiguration.callToActionEnabled = NO;
+    _useNativeSharebox.on = NO;
+    _useNativeSharebox.enabled = NO;
+    _shareConfiguration.useNativeSharebox = NO;
+    _nativeShareboxLabel.text = @"Sign in to use native sharebox";
+  } else {
+    _useNativeSharebox.on = YES;
+    _useNativeSharebox.enabled = YES;
+    _shareConfiguration.useNativeSharebox = YES;
+    _nativeShareboxLabel.text = @"Use native sharebox";
   }
-  addCallToActionButtonLabel_.adjustsFontSizeToFitWidth = YES;
 
-  self.callToActions = [NSArray arrayWithObjects:
-      @"ACCEPT",
-      @"ACCEPT_GIFT",
-      @"ADD",
-      @"ANSWER",
-      @"ADD_TO_CALENDAR",
-      @"APPLY",
-      @"ASK",
-      @"ATTACK",
-      @"BEAT",
-      @"BID",
-      @"BOOK",
-      @"BOOKMARK",
-      @"BROWSE",
-      @"BUY",
-      @"CAPTURE",
-      @"CHALLENGE",
-      @"CHANGE",
-      @"CHECKIN",
-      @"CLICK_HERE",
-      @"CLICK_ME",
-      @"COLLECT",
-      @"COMMENT",
-      @"COMPARE",
-      @"COMPLAIN",
-      @"CONFIRM",
-      @"CONNECT",
-      @"CONTRIBUTE",
-      @"COOK",
-      @"CREATE",
-      @"DEFEND",
-      @"DINE",
-      @"DISCOVER",
-      @"DISCUSS",
-      @"DONATE",
-      @"DOWNLOAD",
-      @"EARN",
-      @"EAT",
-      @"EXPLAIN",
-      @"FOLLOW",
-      @"GET",
-      @"GIFT",
-      @"GIVE",
-      @"GO",
-      @"HELP",
-      @"IDENTIFY",
-      @"INSTALL_APP",
-      @"INTRODUCE",
-      @"INVITE",
-      @"JOIN",
-      @"JOIN_ME",
-      @"LEARN",
-      @"LEARN_MORE",
-      @"LISTEN",
-      @"LOVE",
-      @"MAKE",
-      @"MATCH",
-      @"OFFER",
-      @"OPEN",
-      @"OPEN_APP",
-      @"OWN",
-      @"PAY",
-      @"PIN",
-      @"PLAN",
-      @"PLAY",
-      @"RATE",
-      @"READ",
-      @"RECOMMEND",
-      @"RECORD",
-      @"REDEEM",
-      @"REPLY",
-      @"RESERVE",
-      @"REVIEW",
-      @"RSVP",
-      @"SAVE",
-      @"SAVE_OFFER",
-      @"SELL",
-      @"SEND",
-      @"SHARE_X",
-      @"SIGN_IN",
-      @"SIGN_UP",
-      @"START",
-      @"ST0P",
-      @"TEST",
-      @"UPVOTE",
-      @"VIEW",
-      @"VIEW_ITEM",
-      @"VIEW_PROFILE",
-      @"VISIT",
-      @"VOTE",
-      @"WANT",
-      @"WATCH",
-      @"WRITE",
-      nil
-  ];
-  self.selectedCallToAction = [callToActions_ objectAtIndex:0];
-  self.callToActionPickerView = [[[UIPickerView alloc] init] autorelease];
-  callToActionPickerView_.delegate = self;
-  callToActionPickerView_.dataSource = self;
-  [addCallToActionButtonSwitch_ addTarget:self
-                                   action:@selector(addCallToActionSwitched)
-                         forControlEvents:UIControlEventValueChanged];
-
-  [self layout];
-  [self populateTextFields];
   [super viewDidLoad];
-}
-
-- (void)viewDidUnload {
-  [GPPShare sharedInstance].delegate = nil;
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:UIKeyboardWillShowNotification
-              object:nil];
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:UIKeyboardWillHideNotification
-              object:nil];
-
-  [self setAddContentDeepLinkSwitch:nil];
-  [self setContentDeepLinkID:nil];
-  [self setContentDeepLinkTitle:nil];
-  [self setContentDeepLinkDescription:nil];
-  [self setContentDeepLinkThumbnailURL:nil];
-  [self setShareScrollView:nil];
-  [self setShareView:nil];
-  [self setShareToolbar:nil];
-  [self setAddContentDeepLinkLabel:nil];
-  [self setUrlToShareLabel:nil];
-  [self setPrefillTextLabel:nil];
-  [self setContentDeepLinkIDLabel:nil];
-  [self setContentDeepLinkTitleLabel:nil];
-  [self setContentDeepLinkDescriptionLabel:nil];
-  [self setContentDeepLinkThumbnailURLLabel:nil];
-  [self setShareButton:nil];
-  [self setUrlForContentDeepLinkMetadataSwitch:nil];
-  [self setUrlForContentDeepLinkMetadataLabel:nil];
-  [self setAddCallToActionButtonSwitch:nil];
-  [self setAddCallToActionButtonLabel:nil];
-  [super viewDidUnload];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-  if ([[UIDevice currentDevice] userInterfaceIdiom]
-      == UIUserInterfaceIdiomPad) {
-    shareScrollView_.frame = self.view.frame;
-  }
-  [super viewWillAppear:animated];
-
-  // Register for keyboard notifications while visible.
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(keyboardWillShow:)
-             name:UIKeyboardWillShowNotification
-           object:nil];
-  [[NSNotificationCenter defaultCenter]
-      addObserver:self
-         selector:@selector(keyboardWillHide:)
-             name:UIKeyboardWillHideNotification
-           object:nil];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-  // Unregister for keyboard notifications while not visible.
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:UIKeyboardWillShowNotification
-              object:nil];
-  [[NSNotificationCenter defaultCenter]
-      removeObserver:self
-                name:UIKeyboardWillHideNotification
-              object:nil];
-
-  [super viewWillDisappear:animated];
-}
-
-#pragma mark - UITextFieldDelegate
-
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-  [textField resignFirstResponder];
-  return YES;
-}
-
-- (void)textFieldDidBeginEditing:(UITextField *)textField {
-  activeField_ = textField;
-}
-
-- (void)textFieldDidEndEditing:(UITextField *)textField {
-  activeField_ = nil;
 }
 
 #pragma mark - GPPShareDelegate
 
-- (void)finishedSharing:(BOOL)shared {
-  NSString *text = shared ? @"Success" : @"Canceled";
-  shareStatus_.text = [NSString stringWithFormat:@"Status: %@", text];
-}
-
-#pragma mark - UIActionSheetDelegate
-
-- (void)actionSheet:(UIActionSheet *)actionSheet
-    didDismissWithButtonIndex:(NSInteger)buttonIndex {
-  if (buttonIndex == 0) {
-    [self shareButton:nil];
-  } else if (buttonIndex == 1) {
-    shareStatus_.text = @"Status: Sharing...";
-    MFMailComposeViewController *picker =
-        [[[MFMailComposeViewController alloc] init] autorelease];
-    picker.mailComposeDelegate = self;
-    [picker setSubject:sharePrefillText_.text];
-    [picker setMessageBody:shareURL_.text isHTML:NO];
-
-    [self presentModalViewController:picker animated:YES];
-  }
-}
-
-#pragma mark - MFMailComposeViewControllerDelegate
-
-- (void)mailComposeController:(MFMailComposeViewController *)controller
-          didFinishWithResult:(MFMailComposeResult)result
-                        error:(NSError*)error {
+- (void)finishedSharingWithError:(NSError *)error {
   NSString *text;
-  switch (result) {
-    case MFMailComposeResultCancelled:
-      text = @"Canceled";
-      break;
-    case MFMailComposeResultSaved:
-      text = @"Saved";
-      break;
-    case MFMailComposeResultSent:
-      text = @"Sent";
-      break;
-    case MFMailComposeResultFailed:
-      text = @"Failed";
-      break;
-    default:
-      text = @"Not sent";
-      break;
+  if (!error) {
+    text = @"Success";
+  } else if (error.code == kGPPErrorShareboxCanceled) {
+    text = @"Canceled";
+  } else {
+    text = [NSString stringWithFormat:@"Error (%@)", [error localizedDescription]];
   }
-  shareStatus_.text = [NSString stringWithFormat:@"Status: %@", text];
-  [self dismissModalViewControllerAnimated:YES];
+  _shareStatus.text = [NSString stringWithFormat:@"Status: %@", text];
 }
 
-#pragma mark - UIKeyboard
+#pragma mark - Table view data source
 
-- (void)keyboardWillShow:(NSNotification *)notification {
-  [self animateKeyboard:notification shouldShow:YES];
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+  return [_shareConfiguration numberOfSections];
 }
 
-- (void)keyboardWillHide:(NSNotification *)notification {
-  [self animateKeyboard:notification shouldShow:NO];
+- (NSInteger)tableView:(UITableView *)tableView
+    numberOfRowsInSection:(NSInteger)section {
+  // If call-to-action/deep-link/media attachment/URL sections are not enabled, then
+  // they both only have one row (to contain the enable cell).
+  if (section == kCallToActionSection && !_shareConfiguration.callToActionEnabled) {
+    return 1;
+  } else if (section == kDeepLinkSection && !_shareConfiguration.deepLinkEnabled) {
+    return 1;
+  } else if (section == kMediaSection && !_shareConfiguration.mediaAttachmentEnabled) {
+    return 1;
+  } else if (section == kURLSection && !_shareConfiguration.urlEnabled) {
+    return 1;
+  } else {
+    return [_shareConfiguration numberOfCellsInSection:section];
+  }
 }
 
-#pragma mark - IBActions
+- (NSString *)tableView:(UITableView *)tableView
+    titleForHeaderInSection:(NSInteger)section {
+  NSString *headerTitle = [_shareConfiguration titleForSection:section];
 
-- (IBAction)shareButton:(id)sender {
-  shareStatus_.text = @"Status: Sharing...";
-  id<GPPShareBuilder> shareBuilder = [[GPPShare sharedInstance] shareDialog];
-
-  NSString *inputURL = shareURL_.text;
-  NSURL *urlToShare = [inputURL length] ? [NSURL URLWithString:inputURL] : nil;
-  if (urlToShare) {
-    [shareBuilder setURLToShare:urlToShare];
+  if (section == kCallToActionSection) {
+    if (![GPPSignIn sharedInstance].authentication ||
+        ![[GPPSignIn sharedInstance].scopes containsObject:
+            kGTLAuthScopePlusLogin]) {
+      return [headerTitle stringByAppendingString:@" (Sign in to enable)"];
+    }
+  } else if (section == kMediaSection) {
+    return [headerTitle stringByAppendingString:@" (native sharebox)"];
   }
 
-  if ([contentDeepLinkID_ text]) {
-    [shareBuilder setContentDeepLinkID:[contentDeepLinkID_ text]];
-    NSString *title = [contentDeepLinkTitle_ text];
-    NSString *description = [contentDeepLinkDescription_ text];
-    if (title && description) {
-      NSURL *thumbnailURL =
-          [NSURL URLWithString:[contentDeepLinkThumbnailURL_ text]];
-      [shareBuilder setTitle:title
-                 description:description
-                thumbnailURL:thumbnailURL];
+  return headerTitle;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView
+         cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+  NSString *label = [_shareConfiguration labelForCellAtIndexPath:indexPath];
+  NSString *type = [_shareConfiguration typeForCellAtIndexPath:indexPath];
+
+  UITableViewCell *cell;
+  if ([type isEqualToString:kCellTypeEditable]) {
+    cell = [self editableCellForTableView:tableView indexPath:indexPath];
+  } else if ([type isEqualToString:kCellTypeSwitch]) {
+    cell = [self switchCellForTableView:tableView indexPath:indexPath];
+  } else if ([type isEqualToString:kCellTypeDrilldown]) {
+    cell = [self drilldownCellForTableView:tableView indexPath:indexPath];
+  }
+
+  if ([label isEqualToString:kPrefillAudiencesDrilldownLabel]) {
+    if (![GPPSignIn sharedInstance].authentication ||
+        ![[GPPSignIn sharedInstance].scopes containsObject:kGTLAuthScopePlusLogin]) {
+      label = [label stringByAppendingFormat:@" (Native Sharebox)"];
     }
   }
 
-  NSString *inputText = sharePrefillText_.text;
+  cell.textLabel.adjustsFontSizeToFitWidth = YES;
+  cell.textLabel.minimumFontSize = 10;
+  cell.textLabel.text = label;
+  return cell;
+}
+
+- (BOOL)tableView:(UITableView *)tableView
+    shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
+  NSString *type = [_shareConfiguration typeForCellAtIndexPath:indexPath];
+
+  // Only drilldown cells should be highlightable (other cells have
+  // in-cell controls that would like strange when the cell is highlighted.
+  return [type isEqualToString:kCellTypeDrilldown];
+}
+
+#pragma mark - ListPeopleViewControllerDelegate
+
+- (void)viewController:(ListPeopleViewController *)viewController didPickPeople:(NSArray *)people {
+  [self.navigationController popViewControllerAnimated:YES];
+  _shareConfiguration.sharePrefillPeople = people;
+}
+
+#pragma mark - Event actions
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+  [self.tableView endEditing:YES];
+  UITableViewCell *cell = [self.tableView cellForRowAtIndexPath:indexPath];
+
+  [tableView deselectRowAtIndexPath:indexPath animated:YES];
+
+  if ([cell.textLabel.text isEqualToString:kCallToActionLabelDrilldownLabel]) {
+    DataPickerState *pickerState = _shareConfiguration.callToActionLabelState;
+    DataPickerViewController *dataPicker =
+        [[DataPickerViewController alloc] initWithNibName:nil
+                                                   bundle:nil
+                                                dataState:pickerState];
+    [self.navigationController pushViewController:dataPicker animated:YES];
+  } else if ([cell.textLabel.text isEqualToString:kAttachAssetFromLibraryDrilldownLabel]) {
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    picker.mediaTypes = @[ (NSString *)kUTTypeImage, (NSString *)kUTTypeMovie ];
+    picker.delegate = self;
+    // Fork here to show a UIPopoverController for iPads, as it cannot handle modal views.
+    if ([[UIDevice currentDevice] userInterfaceIdiom] == UIUserInterfaceIdiomPad) {
+      UIPopoverController *popover =
+        [[UIPopoverController alloc] initWithContentViewController:picker];
+      [popover presentPopoverFromRect:CGRectMake(250, 20, 1, 1)
+                               inView:cell
+             permittedArrowDirections:UIPopoverArrowDirectionAny
+                             animated:YES];
+      _assetLibraryPopover = popover;
+    } else {
+      [self presentModalViewController:picker animated:YES];
+    }
+  } else if ([cell.textLabel.text isEqualToString:kAttachAssetFromBundleDrilldownLabel]) {
+    ShareBundleMediaPickerController *picker =
+        [[ShareBundleMediaPickerController alloc] initWithNibName:nil bundle:nil];
+    picker.delegate = self;
+    [self.navigationController pushViewController:picker animated:YES];
+  } else if ([cell.textLabel.text hasPrefix:kPrefillAudiencesDrilldownLabel]) {
+    if (![GPPSignIn sharedInstance].authentication ||
+        ![[GPPSignIn sharedInstance].scopes containsObject:kGTLAuthScopePlusLogin]) {
+      // User is not signed in - do nothing.
+      return;
+    }
+    ListPeopleViewController *peoplePicker =
+        [[ListPeopleViewController alloc] initWithNibName:nil bundle:nil];
+    peoplePicker.allowSelection = YES;
+    peoplePicker.delegate = self;
+    peoplePicker.navigationItem.title = @"Pick people";
+    [self.navigationController pushViewController:peoplePicker animated:YES];
+  } else {
+    UIViewController *viewController = [[UIViewController alloc] init];
+    UITextView *textView = [[UITextView alloc] init];
+    textView.font = [UIFont fontWithName:@"Helvetica" size:18];
+    textView.text = [_shareConfiguration textForCellAtIndexPath:indexPath];
+    // To identify it in the delegate method, we mark which section |textView| was activated from.
+    textView.tag = indexPath.section;
+    textView.delegate = self;
+
+    viewController.view = textView;
+    viewController.navigationItem.title = [_shareConfiguration labelForCellAtIndexPath:indexPath];
+    [self.navigationController pushViewController:viewController animated:YES];
+  }
+}
+
+- (void)toggleUseNativeSharebox:(UISwitch *)sender {
+  [ShareConfiguration sharedInstance].useNativeSharebox = sender.on;
+}
+
+- (void)toggleURLEnabled:(UISwitch *)toggleSwitch {
+  if (_shareConfiguration.urlEnabled == toggleSwitch.on) {
+    return;
+  }
+
+  _shareConfiguration.urlEnabled = toggleSwitch.on;
+  [self toggleRowsToState:_shareConfiguration.urlEnabled section:kURLSection];
+}
+
+- (void)toggleMediaEnabled:(UISwitch *)toggleSwitch {
+  if (_shareConfiguration.mediaAttachmentEnabled == toggleSwitch.on) {
+    return;
+  }
+
+  _shareConfiguration.mediaAttachmentEnabled = toggleSwitch.on;
+  [self toggleRowsToState:_shareConfiguration.mediaAttachmentEnabled section:kMediaSection];
+}
+
+- (void)toggleCallToActionEnabled:(UISwitch *)toggleSwitch {
+  if (_shareConfiguration.callToActionEnabled == toggleSwitch.on) {
+    return;
+  }
+
+  _shareConfiguration.callToActionEnabled = toggleSwitch.on;
+  [self toggleRowsToState:_shareConfiguration.callToActionEnabled
+                  section:kCallToActionSection];
+}
+
+- (void)toggleDeepLinkEnabled:(UISwitch *)toggleSwitch {
+  if (_shareConfiguration.deepLinkEnabled == toggleSwitch.on) {
+    return;
+  }
+
+  _shareConfiguration.deepLinkEnabled = toggleSwitch.on;
+  [self toggleRowsToState:_shareConfiguration.deepLinkEnabled section:kDeepLinkSection];
+}
+
+// For a given section, make visible or not visible all rows except
+// the first (to be called when the properties callToActionEnabled
+// and deepLinkEnabled are toggled.
+- (void)toggleRowsToState:(BOOL)visible section:(NSUInteger)section {
+  NSUInteger sectionSize = [_shareConfiguration numberOfCellsInSection:section];
+  NSMutableArray *changingRows = [[NSMutableArray alloc] init];
+
+  for (NSUInteger row = 1; row < sectionSize; row++) {
+    [changingRows addObject:[NSIndexPath indexPathForItem:row inSection:section]];
+  }
+
+  if (visible) {
+    [self.tableView insertRowsAtIndexPaths:changingRows
+                          withRowAnimation:UITableViewRowAnimationAutomatic];
+  } else {
+    [self.tableView deleteRowsAtIndexPaths:changingRows
+                          withRowAnimation:UITableViewRowAnimationAutomatic];
+  }
+}
+
+#pragma mark - UITextViewDelegate
+
+- (void)textViewDidEndEditing:(UITextView *)textView {
+  // |textView|'s tag identifies which section in the table view it belongs to.
+  if (textView.tag == kShareOptionsSection) {
+    _shareConfiguration.sharePrefillText = textView.text;
+  } else if (textView.tag == kDeepLinkSection) {
+    _shareConfiguration.contentDeepLinkDescription = textView.text;
+  }
+}
+
+# pragma mark - Share
+
+- (IBAction)shareButton:(id)sender {
+  id<GPPShareBuilder> shareBuilder = [self shareBuilder];
+  _shareStatus.text = @"Status: Sharing...";
+  if (![shareBuilder open]) {
+    _shareStatus.text = @"Status: Error (see console).";
+  }
+}
+
+// Launches share sheet which includes a G+ share option.
+- (void)shareSheetButton:(id)sender {
+  ShareActivity *shareActivity = [[ShareActivity alloc] init];
+
+  NSMutableArray *activityItems = [NSMutableArray array];
+  [activityItems addObject:[self shareBuilder]];
+
+  // Although we only need to pass the GPPShareBuilder to ShareActivity, we also add the user post
+  // and the URL if any, which allow the share sheet to present other share options for these types
+  // of data.
+  if (_shareConfiguration.sharePrefillText.length) {
+    [activityItems addObject:_shareConfiguration.sharePrefillText];
+  }
+  if (_shareConfiguration.urlEnabled) {
+    [activityItems addObject:[NSURL URLWithString:_shareConfiguration.shareURL]];
+  }
+
+  NSArray *activities = @[ shareActivity ];
+  UIActivityViewController *activityViewController =
+      [[UIActivityViewController alloc] initWithActivityItems:activityItems
+                                        applicationActivities:activities];
+  [self presentViewController:activityViewController animated:YES completion:nil];
+}
+
+- (id<GPPShareBuilder>)shareBuilder {
+  // End editing to make sure all changes are saved to _shareConfiguration.
+  [self.view endEditing:YES];
+
+  // Create the share builder instance.
+  id<GPPShareBuilder> shareBuilder = _shareConfiguration.useNativeSharebox ?
+                                         [[GPPShare sharedInstance] nativeShareDialog] :
+                                         [[GPPShare sharedInstance] shareDialog];
+
+  if (_shareConfiguration.urlEnabled) {
+    NSString *inputURL = _shareConfiguration.shareURL;
+    NSURL *urlToShare = [inputURL length] ? [NSURL URLWithString:inputURL] : nil;
+    if (urlToShare) {
+      [shareBuilder setURLToShare:urlToShare];
+    }
+  }
+
+  // Add deep link content.
+  if (_shareConfiguration.deepLinkEnabled) {
+    [shareBuilder setContentDeepLinkID:_shareConfiguration.contentDeepLinkID];
+    NSString *title = _shareConfiguration.contentDeepLinkTitle;
+    NSString *description = _shareConfiguration.contentDeepLinkDescription;
+    NSString *urlString = _shareConfiguration.contentDeepLinkThumbnailURL;
+    NSURL *thumbnailURL = urlString.length ? [NSURL URLWithString:urlString] : nil;
+    [shareBuilder setTitle:title description:description thumbnailURL:thumbnailURL];
+  }
+
+  NSString *inputText = _shareConfiguration.sharePrefillText;
   NSString *text = [inputText length] ? inputText : nil;
   if (text) {
     [shareBuilder setPrefillText:text];
   }
 
-  if ([addCallToActionButtonSwitch_ isOn]) {
+
+  if (_shareConfiguration.callToActionEnabled) {
     // Please replace the URL below with your own call-to-action button URL.
-    NSURL *callToActionURL = [NSURL URLWithString:
-        @"http://developers.google.com/+/mobile/ios/"];
-    [shareBuilder setCallToActionButtonWithLabel:selectedCallToAction_
+    NSString *selectedCallToAction =
+        [_shareConfiguration.callToActionLabelState.selectedCells anyObject];
+    NSURL *callToActionURL = [NSURL URLWithString:_shareConfiguration.callToActionURL];
+
+    NSString *deepLinkID = _shareConfiguration.callToActionDeepLinkID;
+    [shareBuilder setCallToActionButtonWithLabel:selectedCallToAction
                                              URL:callToActionURL
-                                      deepLinkID:@"call-to-action"];
+                                      deepLinkID:deepLinkID];
   }
 
-  if (![shareBuilder open]) {
-    shareStatus_.text = @"Status: Error (see console).";
+  // Attach media if we are using the native sharebox and have selected a media element.,
+  if (_shareConfiguration.useNativeSharebox) {
+    if (_shareConfiguration.mediaAttachmentEnabled) {
+      if (_shareConfiguration.attachmentImage) {
+        [(id<GPPNativeShareBuilder>)shareBuilder attachImage:_shareConfiguration.attachmentImage];
+      } else if (_shareConfiguration.attachmentVideoURL) {
+        [(id<GPPNativeShareBuilder>)shareBuilder attachVideoURL:
+             _shareConfiguration.attachmentVideoURL];
+      }
+    }
+    if (_shareConfiguration.sharePrefillPeople.count) {
+      [(id<GPPNativeShareBuilder>)shareBuilder
+          setPreselectedPeopleIDs:_shareConfiguration.sharePrefillPeople];
+    }
   }
-}
 
-- (IBAction)shareToolbar:(id)sender {
-  UIActionSheet *actionSheet =
-      [[[UIActionSheet alloc] initWithTitle:@"Share this post"
-                                   delegate:self
-                          cancelButtonTitle:@"Cancel"
-                     destructiveButtonTitle:nil
-                          otherButtonTitles:@"Google+", @"Email", nil]
-          autorelease];
-  [actionSheet showFromToolbar:shareToolbar_];
-}
-
-- (IBAction)urlForContentDeepLinkMetadataSwitchToggle:(id)sender {
-  [self layout];
-  [self populateTextFields];
-}
-
-- (IBAction)contentDeepLinkSwitchToggle:(id)sender {
-  if (!addContentDeepLinkSwitch_.on) {
-    [urlForContentDeepLinkMetadataSwitch_ setOn:YES];
-  }
-  [self layout];
-  [self populateTextFields];
+  return shareBuilder;
 }
 
 #pragma mark - Helper methods
 
-- (void)placeView:(UIView *)view x:(CGFloat)x y:(CGFloat)y {
-  CGSize frameSize = view.frame.size;
-  view.frame = CGRectMake(x, y, frameSize.width, frameSize.height);
+- (UITableViewCell *)editableCellForTableView:(UITableView *)tableView
+                                    indexPath:(NSIndexPath *)indexPath {
+  EditableCell *editableCell =
+      (EditableCell *)[tableView dequeueReusableCellWithIdentifier:kCellTypeEditable];
+  if (!editableCell) {
+    editableCell = [[EditableCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                       reuseIdentifier:kCellTypeEditable];
+  }
+  // Populate text field with the current stored value for this field.
+  editableCell.textField.text = [_shareConfiguration textForCellAtIndexPath:indexPath];
+
+  // Associate this text field with its property in |_shareConfiguration|.
+  editableCell.associatedProperty = [_shareConfiguration propertyForCellAtIndexPath:indexPath];
+  editableCell.associatedPropertyOwner = _shareConfiguration;
+  return editableCell;
 }
 
-- (void)layout {
-  CGFloat originX = 20.0;
-  CGFloat originY = 10.0;
-  CGFloat yPadding = 10.0;
-  CGFloat currentY = originY;
-  CGFloat middleX = 150;
+- (UITableViewCell *)switchCellForTableView:(UITableView *)tableView
+                                  indexPath:(NSIndexPath *)indexPath {
+  UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellTypeSwitch];
+  if (!cell) {
+    cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                  reuseIdentifier:kCellTypeSwitch];
 
-  // Place the switch for adding call-to-action button.
-  [self placeView:addCallToActionButtonLabel_ x:originX y:currentY];
-  [self placeView:addCallToActionButtonSwitch_ x:middleX * 1.5 y:currentY];
-  CGSize frameSize = addCallToActionButtonSwitch_.frame.size;
-  currentY += frameSize.height + yPadding;
-
-  // Place the switch for attaching content deep-link data.
-  [self placeView:addContentDeepLinkLabel_ x:originX y:currentY];
-  [self placeView:addContentDeepLinkSwitch_ x:middleX * 1.5 y:currentY];
-  frameSize = addContentDeepLinkSwitch_.frame.size;
-  currentY += frameSize.height + yPadding;
-
-  // Place the switch for preview URL.
-  if (addContentDeepLinkSwitch_.on) {
-    [self placeView:urlForContentDeepLinkMetadataLabel_ x:originX y:currentY];
-    [self placeView:urlForContentDeepLinkMetadataSwitch_
-                  x:middleX * 1.5
-                  y:currentY];
-    frameSize = urlForContentDeepLinkMetadataSwitch_.frame.size;
-    currentY += frameSize.height + yPadding;
-    urlForContentDeepLinkMetadataSwitch_.hidden = NO;
-    urlForContentDeepLinkMetadataLabel_.hidden = NO;
-  } else {
-    urlForContentDeepLinkMetadataSwitch_.hidden = YES;
-    urlForContentDeepLinkMetadataLabel_.hidden = YES;
+    UISwitch *toggleSwitch = [[UISwitch alloc] initWithFrame:CGRectZero];
+    cell.accessoryView = toggleSwitch;
   }
+  // Reset switch accessory to have the correct value for |enabled|, |on|, and to target the
+  // correct selector when its value changes.
+  UISwitch *toggleSwitch = (UISwitch *)cell.accessoryView;
+  toggleSwitch.enabled = YES;
+  [toggleSwitch removeTarget:nil action:NULL forControlEvents:UIControlEventAllEvents];
 
-  // Place the field for URL to share.
-  if (urlForContentDeepLinkMetadataSwitch_.on) {
-    [self placeView:urlToShareLabel_ x:originX y:currentY];
-    frameSize = urlToShareLabel_.frame.size;
-    currentY += frameSize.height + 0.5 * yPadding;
+  NSString *label = [_shareConfiguration labelForCellAtIndexPath:indexPath];
+  if ([label isEqualToString:kAddCallToActionLabel]) {
+    toggleSwitch.on = _shareConfiguration.callToActionEnabled;
+    [toggleSwitch addTarget:self
+                     action:@selector(toggleCallToActionEnabled:)
+           forControlEvents:UIControlEventValueChanged];
 
-    [self placeView:shareURL_ x:originX y:currentY];
-    frameSize = shareURL_.frame.size;
-    currentY += frameSize.height + yPadding;
-    urlToShareLabel_.hidden = NO;
-    shareURL_.hidden = NO;
-  } else {
-    urlToShareLabel_.hidden = YES;
-    shareURL_.hidden = YES;
+    if (![GPPSignIn sharedInstance].authentication ||
+        ![[GPPSignIn sharedInstance].scopes containsObject:kGTLAuthScopePlusLogin]) {
+      // If not logged in, then a call to action cannot be added.
+      toggleSwitch.enabled = NO;
+    }
+  } else if ([label isEqualToString:kAddDeepLinkLabel]) {
+    toggleSwitch.on = _shareConfiguration.deepLinkEnabled;
+    [toggleSwitch addTarget:self
+                     action:@selector(toggleDeepLinkEnabled:)
+           forControlEvents:UIControlEventValueChanged];
+  } else if ([label isEqualToString:kAddMediaLabel]) {
+    toggleSwitch.on = _shareConfiguration.mediaAttachmentEnabled;
+    [toggleSwitch addTarget:self
+                     action:@selector(toggleMediaEnabled:)
+           forControlEvents:UIControlEventValueChanged];
+  } else if ([label isEqualToString:kAddURLLabel]) {
+    toggleSwitch.on = _shareConfiguration.urlEnabled;
+    [toggleSwitch addTarget:self
+                     action:@selector(toggleURLEnabled:)
+           forControlEvents:UIControlEventValueChanged];
   }
-
-  // Place the field for prefill text.
-  [self placeView:prefillTextLabel_ x:originX y:currentY];
-  frameSize = prefillTextLabel_.frame.size;
-  currentY += frameSize.height + 0.5 * yPadding;
-  [self placeView:sharePrefillText_ x:originX y:currentY];
-  frameSize = sharePrefillText_.frame.size;
-  currentY += frameSize.height + yPadding;
-
-  // Place the content deep-link ID field.
-  if (addContentDeepLinkSwitch_.on) {
-    [self placeView:contentDeepLinkIDLabel_ x:originX y:currentY];
-    frameSize = contentDeepLinkIDLabel_.frame.size;
-    currentY += frameSize.height + 0.5 * yPadding;
-    [self placeView:contentDeepLinkID_ x:originX y:currentY];
-    frameSize = contentDeepLinkID_.frame.size;
-    currentY += frameSize.height + yPadding;
-    contentDeepLinkIDLabel_.hidden = NO;
-    contentDeepLinkID_.hidden = NO;
-  } else {
-    contentDeepLinkIDLabel_.hidden = YES;
-    contentDeepLinkID_.hidden = YES;
-  }
-
-  // Place fields for content deep-link metadata.
-  if (addContentDeepLinkSwitch_.on &&
-      !urlForContentDeepLinkMetadataSwitch_.on) {
-    [self placeView:contentDeepLinkTitleLabel_ x:originX y:currentY];
-    frameSize = contentDeepLinkTitleLabel_.frame.size;
-    currentY += frameSize.height + 0.5 * yPadding;
-    [self placeView:contentDeepLinkTitle_ x:originX y:currentY];
-    frameSize = contentDeepLinkTitle_.frame.size;
-    currentY += frameSize.height + yPadding;
-
-    [self placeView:contentDeepLinkDescriptionLabel_ x:originX y:currentY];
-    frameSize = contentDeepLinkDescriptionLabel_.frame.size;
-    currentY += frameSize.height + 0.5 * yPadding;
-    [self placeView:contentDeepLinkDescription_ x:originX y:currentY];
-    frameSize = contentDeepLinkDescription_.frame.size;
-    currentY += frameSize.height + yPadding;
-
-    [self placeView:contentDeepLinkThumbnailURLLabel_ x:originX y:currentY];
-    frameSize = contentDeepLinkThumbnailURLLabel_.frame.size;
-    currentY += frameSize.height + 0.5 * yPadding;
-    [self placeView:contentDeepLinkThumbnailURL_ x:originX y:currentY];
-    frameSize = contentDeepLinkThumbnailURL_.frame.size;
-    currentY += frameSize.height + yPadding;
-
-    contentDeepLinkTitle_.hidden = NO;
-    contentDeepLinkTitleLabel_.hidden = NO;
-    contentDeepLinkDescriptionLabel_.hidden = NO;
-    contentDeepLinkDescription_.hidden = NO;
-    contentDeepLinkThumbnailURLLabel_.hidden = NO;
-    contentDeepLinkThumbnailURL_.hidden = NO;
-  } else {
-    contentDeepLinkTitle_.hidden = YES;
-    contentDeepLinkTitleLabel_.hidden = YES;
-    contentDeepLinkDescriptionLabel_.hidden = YES;
-    contentDeepLinkDescription_.hidden = YES;
-    contentDeepLinkThumbnailURLLabel_.hidden = YES;
-    contentDeepLinkThumbnailURL_.hidden = YES;
-  }
-
-  // Place the share button and status.
-  [[shareButton_ layer] setCornerRadius:5];
-  [[shareButton_ layer] setMasksToBounds:YES];
-  CGColorRef borderColor = [[UIColor colorWithWhite:203.0/255.0
-                                              alpha:1.0] CGColor];
-  [[shareButton_ layer] setBorderColor:borderColor];
-  [[shareButton_ layer] setBorderWidth:1.0];
-
-  [self placeView:shareButton_ x:originX y:currentY + yPadding];
-  frameSize = shareButton_.frame.size;
-  currentY += frameSize.height + yPadding * 2;
-
-  [self placeView:shareStatus_ x:originX y:currentY];
-  frameSize = shareStatus_.frame.size;
-  currentY += frameSize.height + yPadding;
-
-  shareScrollView_.contentSize =
-      CGSizeMake(shareScrollView_.frame.size.width, currentY);
-}
-
-- (void)populateTextFields {
-  // Pre-populate text fields for Google+ share sample.
-  if (sharePrefillText_.hidden) {
-    sharePrefillText_.text = @"";
-  } else {
-    sharePrefillText_.text = @"Welcome to Google+ Platform";
-  }
-
-  if (shareURL_.hidden) {
-    shareURL_.text = @"";
-  } else {
-    shareURL_.text = @"http://developers.google.com/+/mobile/ios/";
-  }
-
-  if (contentDeepLinkID_.hidden) {
-    contentDeepLinkID_.text = @"";
-  } else {
-    contentDeepLinkID_.text = @"playlist/314159265358";
-  }
-
-  if (contentDeepLinkTitle_.hidden) {
-    contentDeepLinkTitle_.text = @"";
-  } else {
-    contentDeepLinkTitle_.text = @"Joe's Pop Music Playlist";
-  }
-
-  if (contentDeepLinkDescription_.hidden) {
-    contentDeepLinkDescription_.text = @"";
-  } else {
-    contentDeepLinkDescription_.text =
-        @"Check out this playlist of my favorite pop songs!";
-  }
-
-  if (contentDeepLinkThumbnailURL_.hidden) {
-    contentDeepLinkThumbnailURL_.text = @"";
-  } else {
-    contentDeepLinkThumbnailURL_.text =
-        @"http://www.google.com/logos/2012/childrensday-2012-hp.jpg";
-  }
-}
-
-- (void)animateKeyboard:(NSNotification *)notification
-             shouldShow:(BOOL)shouldShow {
-  if (!shouldShow) {
-    UIEdgeInsets contentInsets = UIEdgeInsetsZero;
-    shareScrollView_.contentInset = contentInsets;
-    shareScrollView_.scrollIndicatorInsets = contentInsets;
-    return;
-  }
-
-  NSDictionary *userInfo = [notification userInfo];
-  CGRect kbFrame =
-      [[userInfo objectForKey:UIKeyboardFrameBeginUserInfoKey] CGRectValue];
-  CGSize kbSize = kbFrame.size;
-  UIEdgeInsets contentInsets = UIEdgeInsetsMake(0.0, 0.0, kbSize.height, 0.0);
-  shareScrollView_.contentInset = contentInsets;
-  shareScrollView_.scrollIndicatorInsets = contentInsets;
-
-  // If active text field is hidden by keyboard, scroll so it's visible.
-  CGRect aRect = self.view.frame;
-  aRect.size.height -= kbSize.height;
-  CGPoint bottomLeft =
-      CGPointMake(0.0, activeField_.frame.origin.y +
-          activeField_.frame.size.height + 10);
-  if (!CGRectContainsPoint(aRect, bottomLeft)) {
-    CGPoint scrollPoint = CGPointMake(0.0, bottomLeft.y - aRect.size.height);
-    [shareScrollView_ setContentOffset:scrollPoint animated:YES];
-  }
-  return;
-}
-
-- (void)addCallToActionSwitched {
-  if (!addCallToActionButtonSwitch_.on) {
-    return;
-  }
-  [self.view addSubview:callToActionPickerView_];
-}
-
-#pragma mark - UIPickerViewDataSource
-
-- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView {
-  return 1;
-}
-
-- (NSInteger)pickerView:(UIPickerView *)pickerView
-    numberOfRowsInComponent:(NSInteger)component {
-  return callToActions_.count;
-}
-
-#pragma mark - UIPickerViewDelegate
-
-- (UIView *)pickerView:(UIPickerView *)pickerView viewForRow:(NSInteger)row
-    forComponent:(NSInteger)component reusingView:(UIView *)view {
-  UITableViewCell *cell = (UITableViewCell *)view;
-  if (cell == nil) {
-    cell = [[[UITableViewCell alloc]
-          initWithStyle:UITableViewCellStyleDefault
-        reuseIdentifier:nil] autorelease];
-    [cell setBackgroundColor:[UIColor clearColor]];
-    [cell setBounds: CGRectMake(0, 0, cell.frame.size.width - 20 , 44)];
-    UITapGestureRecognizer *singleTapGestureRecognizer =
-        [[[UITapGestureRecognizer alloc]
-            initWithTarget:self
-                    action:@selector(toggleSelection:)] autorelease];
-    singleTapGestureRecognizer.numberOfTapsRequired = 1;
-    [cell addGestureRecognizer:singleTapGestureRecognizer];
-  }
-  NSString *callToAction = [callToActions_ objectAtIndex:row];
-  if ([selectedCallToAction_ isEqualToString:callToAction]) {
-    cell.accessoryType = UITableViewCellAccessoryCheckmark;
-  } else {
-    cell.accessoryType = UITableViewCellAccessoryNone;
-  }
-  cell.textLabel.text = callToAction;
-  cell.textLabel.font = [UIFont systemFontOfSize:12];
-  cell.tag = row;
   return cell;
 }
 
-- (void)toggleSelection:(UITapGestureRecognizer *)recognizer {
-  int row = recognizer.view.tag;
-  self.selectedCallToAction = [callToActions_ objectAtIndex:row];
-  [callToActionPickerView_ removeFromSuperview];
-  // Force refresh checked/unchecked marks.
-  [callToActionPickerView_ reloadAllComponents];
-  addCallToActionButtonLabel_.text =
-      [NSString stringWithFormat:@"Call-to-Action: %@", selectedCallToAction_];
+- (UITableViewCell *)drilldownCellForTableView:(UITableView *)tableView
+                                     indexPath:(NSIndexPath *)indexPath {
+  UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kCellTypeDrilldown];
+  if (!cell) {
+    cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                  reuseIdentifier:kCellTypeDrilldown];
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+  }
+  return cell;
+}
+
+#pragma mark - UIImagePickerControllerDelegate
+
+- (void)imagePickerController:(UIImagePickerController *)picker
+    didFinishPickingMediaWithInfo:(NSDictionary *)info {
+  NSString *mediaType = info[UIImagePickerControllerMediaType];
+  if ([mediaType isEqualToString:@"public.movie"]) {
+    _shareConfiguration.attachmentImage = nil;
+    _shareConfiguration.attachmentVideoURL = info[UIImagePickerControllerReferenceURL];
+  } else {
+    _shareConfiguration.attachmentImage = info[UIImagePickerControllerOriginalImage];
+    _shareConfiguration.attachmentVideoURL = nil;
+  }
+  if (_assetLibraryPopover) {
+    [_assetLibraryPopover dismissPopoverAnimated:YES];
+    _assetLibraryPopover = nil;
+  } else {
+    [self dismissModalViewControllerAnimated:YES];
+  }
+}
+
+- (void)selectedImage:(UIImage *)image {
+  _shareConfiguration.attachmentImage = image;
+  _shareConfiguration.attachmentVideoURL = nil;
+}
+
+- (void)selectedVideo:(NSURL *)videoURL {
+  _shareConfiguration.attachmentImage = nil;
+  _shareConfiguration.attachmentVideoURL = videoURL;
 }
 
 @end

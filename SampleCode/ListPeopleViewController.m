@@ -21,42 +21,41 @@
 #import <GoogleOpenSource/GoogleOpenSource.h>
 #import <GooglePlus/GooglePlus.h>
 
-@interface ListPeopleViewController()
-- (void)listPeople:(NSString *)collection;
-- (void)reportAuthStatus;
-- (void)fetchPeopleImages;
+@interface ListPeopleViewController ()
+
+@property(copy, nonatomic) NSString *status;
+
 @end
 
-@implementation ListPeopleViewController
-
-@synthesize peopleTable = peopleTable_;
-@synthesize peopleList = peopleList_;
-@synthesize peopleStatus = peopleStatus_;
-@synthesize peopleImageList = peopleImageList_;
-
-#pragma mark - Object lifecycle
-
-- (void)dealloc {
-  [peopleStatus_ release];
-  [super dealloc];
+@implementation ListPeopleViewController {
+  UIImage *_placeholderAvatar;
+  NSArray *_peopleList;
+  NSMutableArray *_selectedPeopleList;
+  NSMutableArray *_peopleImageList;
 }
 
 #pragma mark - View lifecycle
 
 - (void)viewDidLoad {
-  // Report whether the user is authenticated with
-  // https://www.googleapis.com/auth/plus.login scope.
-  [self reportAuthStatus];
   // Send Google+ request to get list of people that is visible to this app.
   [self listPeople:kGTLPlusCollectionVisible];
+  _selectedPeopleList = [NSMutableArray array];
+  _placeholderAvatar = [UIImage imageNamed:@"PlaceholderAvatar.png"];
+
+  if (self.allowSelection) {
+    self.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone
+                                                      target:self
+                                                      action:@selector(doneSelecting)];
+  }
+
   [super viewDidLoad];
 }
 
-- (void)viewDidUnload {
-  [peopleImageList_ release];
-  [peopleList_ release];
-  [peopleStatus_ release];
-  [super viewDidUnload];
+- (void)doneSelecting {
+  if (self.delegate) {
+    [self.delegate viewController:self didPickPeople:_selectedPeopleList];
+  }
 }
 
 #pragma mark - UITableViewDelegate/UITableViewDataSource
@@ -67,52 +66,77 @@
 
 - (NSInteger)tableView:(UITableView *)tableView
  numberOfRowsInSection:(NSInteger)section {
-  return peopleList_.count;
+  return _peopleList.count;
+}
+
+- (NSString *)tableView:(UITableView *)tableView
+    titleForHeaderInSection:(NSInteger)section {
+  return self.status;
+}
+
+- (BOOL)tableView:(UITableView *)tableView
+    shouldHighlightRowAtIndexPath:(NSIndexPath *)indexPath {
+  return self.allowSelection;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView
          cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-  static NSString *const kCellIdentifier = @"Cell";
+  static NSString * const kCellIdentifier = @"Cell";
   UITableViewCell *cell =
       [tableView dequeueReusableCellWithIdentifier:kCellIdentifier];
   if (cell == nil) {
-    cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-                                   reuseIdentifier:kCellIdentifier]
-             autorelease];
-    cell.accessoryType = UITableViewCellAccessoryNone;
+    cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                                  reuseIdentifier:kCellIdentifier];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
   }
 
   // Configure the cell by extracting a person's name and image from the list
   // of people.
-  if (indexPath.row < peopleList_.count) {
-    GTLPlusPerson *person = peopleList_[indexPath.row];
+  if ((NSUInteger)indexPath.row < _peopleList.count) {
+    GTLPlusPerson *person = _peopleList[indexPath.row];
     NSString *name = person.displayName;
     cell.textLabel.text = name;
 
-    if (indexPath.row < [peopleImageList_ count] &&
-        ![[peopleImageList_ objectAtIndex:indexPath.row]
+    if ((NSUInteger)indexPath.row < [_peopleImageList count] &&
+        ![[_peopleImageList objectAtIndex:indexPath.row]
             isEqual:[NSNull null]]) {
       cell.imageView.image =
-          [[[UIImage alloc]
-              initWithData:[peopleImageList_ objectAtIndex:indexPath.row]]
-                  autorelease];
+          [[UIImage alloc]
+              initWithData:[_peopleImageList objectAtIndex:indexPath.row]];
     } else {
-      cell.imageView.image = nil;
+      cell.imageView.image = _placeholderAvatar;
+    }
+    if (self.allowSelection && [_selectedPeopleList containsObject:person.identifier]) {
+        cell.accessoryType = UITableViewCellAccessoryCheckmark;
+    } else {
+      cell.accessoryType = UITableViewCellAccessoryNone;
     }
   }
 
   return cell;
 }
 
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+  if (self.allowSelection) {
+    GTLPlusPerson *person = _peopleList[indexPath.row];
+    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+    if (cell.accessoryType == UITableViewCellAccessoryNone) {
+      cell.accessoryType = UITableViewCellAccessoryCheckmark;
+      [_selectedPeopleList addObject:person.identifier];
+    } else {
+      cell.accessoryType = UITableViewCellAccessoryNone;
+      [_selectedPeopleList removeObject:person.identifier];
+    }
+  }
+}
+
 #pragma mark - Helper methods
 
 - (void)listPeople:(NSString *)collection {
-  GTMOAuth2Authentication *auth = [GPPSignIn sharedInstance].authentication;
-  if (!auth) {
-    // To authenticate, use Google+ sign-in button.
-    peopleStatus_.text = @"Status: Not authenticated";
-    return;
-  }
+  _peopleList = nil;
+  _peopleImageList = nil;
+  self.status = @"Loading people...";
+  [self.tableView reloadData];
 
   // 1. Create a |GTLQuery| object to list people that are visible to this
   // sample app.
@@ -127,33 +151,42 @@
                               NSError *error) {
               if (error) {
                 GTMLoggerError(@"Error: %@", error);
-                peopleStatus_.text =
-                    [NSString stringWithFormat:@"Status: Error: %@", error];
+                self.status = [NSString stringWithFormat:@"Error: %@", error];
+                [self.tableView reloadData];
               } else {
                 // Get an array of people from |GTLPlusPeopleFeed| and reload
                 // the table view.
-                peopleList_ = [peopleFeed.items retain];
-                [peopleTable_ reloadData];
+                _peopleList = peopleFeed.items;
 
                 // Render the status of the Google+ request.
                 NSNumber *count = peopleFeed.totalItems;
                 if (count.intValue == 1) {
-                  peopleStatus_.text = [NSString stringWithFormat:
-                      @"Status: Listed 1 person"];
+                  self.status = @"1 person in your circles";
                 } else {
-                  peopleStatus_.text = [NSString stringWithFormat:
-                      @"Status: Listed %@ people", count];
+                  self.status = [NSString stringWithFormat:
+                      @"%@ people in your circles", count];
                 }
-                [self fetchPeopleImages];
+                [self.tableView reloadData];
+
+                dispatch_queue_t backgroundQueue =
+                    dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT,
+                                              0);
+                dispatch_async(backgroundQueue, ^{
+                    [self fetchPeopleImages];
+                });
               }
           }];
 }
 
 - (void)fetchPeopleImages {
   NSInteger index = 0;
-  peopleImageList_ =
-      [[NSMutableArray alloc] initWithCapacity:[peopleList_ count]];
-  for (GTLPlusPerson *person in peopleList_) {
+  _peopleImageList =
+      [[NSMutableArray alloc] initWithCapacity:[_peopleList count]];
+  for (GTLPlusPerson *person in _peopleList) {
+    // Stop loading images if the user has left the table view.
+    if (!self.navigationController) {
+      return;
+    }
     NSData *imageData = nil;
     NSString *imageURLString = person.image.url;
     if (imageURLString) {
@@ -161,25 +194,17 @@
       imageData = [NSData dataWithContentsOfURL:imageURL];
     }
     if (imageData) {
-      [peopleImageList_ setObject:imageData atIndexedSubscript:index];
+      [_peopleImageList setObject:imageData atIndexedSubscript:index];
+
+      NSIndexPath *path = [NSIndexPath indexPathForItem:index inSection:0];
+      dispatch_async(dispatch_get_main_queue(), ^{
+          [self.tableView reloadRowsAtIndexPaths:@[path]
+                                withRowAnimation:UITableViewRowAnimationNone];
+      });
     } else {
-      [peopleImageList_ setObject:[NSNull null] atIndexedSubscript:index];
+      [_peopleImageList setObject:[NSNull null] atIndexedSubscript:index];
     }
     ++index;
-  }
-}
-
-- (void)reportAuthStatus {
-  if (![GPPSignIn sharedInstance].authentication) {
-    return;
-  }
-
-  if ([[GPPSignIn sharedInstance].scopes containsObject:
-          kGTLAuthScopePlusLogin]) {
-    peopleStatus_.text = @"Status: Authenticated with plus.login scope";
-  } else {
-    // To authenticate, use Google+ sign-in button.
-    peopleStatus_.text = @"Status: Not authenticated with plus.login scope";
   }
 }
 

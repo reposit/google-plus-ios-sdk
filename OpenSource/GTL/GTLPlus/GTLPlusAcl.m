@@ -26,7 +26,7 @@
 // Documentation:
 //   https://developers.google.com/+/api/
 // Classes:
-//   GTLPlusAcl (0 custom class methods, 3 custom properties)
+//   GTLPlusAcl (0 custom class methods, 4 custom properties)
 
 #import "GTLPlusAcl.h"
 
@@ -38,7 +38,7 @@
 //
 
 @implementation GTLPlusAcl
-@dynamic descriptionProperty, items, kind;
+@dynamic descriptionProperty, domainRestricted, items, kind;
 
 + (NSDictionary *)propertyToJSONKeyMap {
   NSDictionary *map =

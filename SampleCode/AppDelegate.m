@@ -27,35 +27,26 @@
 
 @implementation AppDelegate
 
-@synthesize window = window_;
-@synthesize navigationController = navigationController_;
-
 // DO NOT USE THIS CLIENT ID. IT WILL NOT WORK FOR YOUR APP.
 // Please use the client ID created for you by Google.
 static NSString * const kClientID =
-    @"452265719636.apps.googleusercontent.com";
+    @"452265719636-qbqmhro0t3j9jip1npl69a3er7biidd2.apps.googleusercontent.com";
 
 #pragma mark Object life-cycle.
 
-- (void)dealloc {
-  [window_ release];
-  [navigationController_ release];
-  [super dealloc];
-}
 
 - (BOOL)application:(UIApplication *)application
     didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
   // Set app's client ID for |GPPSignIn| and |GPPShare|.
   [GPPSignIn sharedInstance].clientID = kClientID;
 
-  self.window = [[[UIWindow alloc]
-      initWithFrame:[[UIScreen mainScreen] bounds]] autorelease];
+  self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
   MasterViewController *masterViewController =
-      [[[MasterViewController alloc] initWithNibName:@"MasterViewController"
-                                              bundle:nil] autorelease];
+      [[MasterViewController alloc] initWithNibName:@"MasterViewController"
+                                             bundle:nil];
   self.navigationController =
-      [[[UINavigationController alloc]
-          initWithRootViewController:masterViewController] autorelease];
+      [[UINavigationController alloc]
+          initWithRootViewController:masterViewController];
   self.window.rootViewController = self.navigationController;
   [self.window makeKeyAndVisible];
 
@@ -78,12 +69,12 @@ static NSString * const kClientID =
 
 - (void)didReceiveDeepLink:(GPPDeepLink *)deepLink {
   // An example to handle the deep link data.
-  UIAlertView *alert = [[[UIAlertView alloc]
+  UIAlertView *alert = [[UIAlertView alloc]
           initWithTitle:@"Deep-link Data"
                 message:[deepLink deepLinkID]
                delegate:nil
       cancelButtonTitle:@"OK"
-      otherButtonTitles:nil] autorelease];
+      otherButtonTitles:nil];
   [alert show];
 }
 

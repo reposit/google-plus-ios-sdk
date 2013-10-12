@@ -1,3 +1,7 @@
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 // Copyright 2012, Google Inc.
 // All rights reserved.
 //
@@ -36,15 +40,32 @@ static NSString * const kGoogleChromeHTTPSScheme = @"googlechromes:";
 static NSString * const kGoogleChromeCallbackScheme =
     @"googlechrome-x-callback:";
 
+// Name of the shared UIPasteboard used to store the Chrome preferences.
+static NSString * const kChromePasteboardName =
+    @"com.google.preferences.chrome";
+
+// Key of the OpenInChrome preference.
+static NSString * const kOpenInChromePreferenceKey =
+    @"com.google.preferences.chrome.openinchrome";
+
+// Name of the shared UIPasteboard representation type.
+static NSString * const kPasteboardType = @"com.google.data";
+
+// Key for the Data content of the pasteboard.
+static NSString * const kDataDictionaryKey = @"Data";
+
+// String for the version key in the main dictionary.
+static NSString * const kVersionKey = @"Version-1";
+
 static NSString * encodeByAddingPercentEscapes(NSString *input) {
   NSString *encodedValue =
-      (NSString *)CFURLCreateStringByAddingPercentEscapes(
+      (NSString *)CFBridgingRelease(CFURLCreateStringByAddingPercentEscapes(
           kCFAllocatorDefault,
           (CFStringRef)input,
           NULL,
           (CFStringRef)@"!*'();:@&=+$,/?%#[]",
-          kCFStringEncodingUTF8);
-  return [encodedValue autorelease];
+          kCFStringEncodingUTF8));
+  return encodedValue;
 }
 
 @implementation OpenInChromeController
@@ -131,5 +152,40 @@ static NSString * encodeByAddingPercentEscapes(NSString *input) {
   }
   return NO;
 }
+
+- (OpenInChromePreference)openInChromePreference {
+  NSDictionary *pasteboardContent = [self pasteboardContent];
+  NSDictionary *pasteboardData =
+      [pasteboardContent objectForKey:kDataDictionaryKey];
+  NSDictionary *userPreferences =
+      [pasteboardData objectForKey:kVersionKey];
+  NSNumber *value =
+      [userPreferences objectForKey:kOpenInChromePreferenceKey];
+  return value ? [value integerValue] : kOpenInChromeNone;
+}
+
+#pragma mark - Private methods
+
+- (NSDictionary *)pasteboardContent {
+  UIPasteboard *pasteboard =
+      [UIPasteboard pasteboardWithName:kChromePasteboardName
+                                create:NO];
+
+  NSData *data = [pasteboard dataForPasteboardType:kPasteboardType];
+  id pasteboardContent = nil;
+  if (data) {
+    pasteboardContent =
+        [NSPropertyListSerialization propertyListWithData:data
+                                                  options:0
+                                                   format:nil
+                                                    error:nil];
+  }
+  if ([pasteboardContent isKindOfClass:[NSDictionary class]]) {
+    return (NSDictionary *)pasteboardContent;
+  }
+
+  return nil;
+}
+
 
 @end

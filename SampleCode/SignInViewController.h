@@ -23,29 +23,31 @@
 // A view controller for the Google+ sign-in button which initiates a standard
 // OAuth 2.0 flow and provides an access token and a refresh token. A "Sign out"
 // button is provided to allow users to sign out of this application.
-@interface SignInViewController : UIViewController
+@interface SignInViewController : UITableViewController<UIAlertViewDelegate>
 
-// The button that handles Google+ sign-in.
-@property (retain, nonatomic) IBOutlet GPPSignInButton *signInButton;
+@property(weak, nonatomic) IBOutlet GPPSignInButton *signInButton;
 // A label to display the result of the sign-in action.
-@property (retain, nonatomic) IBOutlet UILabel *signInAuthStatus;
+@property(weak, nonatomic) IBOutlet UILabel *signInAuthStatus;
 // A label to display the signed-in user's display name.
-@property (retain, nonatomic) IBOutlet UILabel *signInDisplayName;
+@property(weak, nonatomic) IBOutlet UILabel *userName;
+// A label to display the signed-in user's email address.
+@property(weak, nonatomic) IBOutlet UILabel *userEmailAddress;
+// An image view to display the signed-in user's avatar image.
+@property(weak, nonatomic) IBOutlet UIImageView *userAvatar;
 // A button to sign out of this application.
-@property (retain, nonatomic) IBOutlet UIButton *signOutButton;
+@property(weak, nonatomic) IBOutlet UIButton *signOutButton;
 // A button to disconnect user from this application.
-@property (retain, nonatomic) IBOutlet UIButton *disconnectButton;
-// A switch for whether to request
-// https://www.googleapis.com/auth/userinfo.email scope to get user's email
-// address after the sign-in action.
-@property (retain, nonatomic) IBOutlet UISwitch *userinfoEmailScope;
+@property(weak, nonatomic) IBOutlet UIButton *disconnectButton;
+// A button to inspect the authorization object.
+@property(weak, nonatomic) IBOutlet UIButton *credentialsButton;
+// A dynamically-created slider for controlling the sign-in button width.
+@property(weak, nonatomic) UISlider *signInButtonWidthSlider;
 
 // Called when the user presses the "Sign out" button.
 - (IBAction)signOut:(id)sender;
 // Called when the user presses the "Disconnect" button.
 - (IBAction)disconnect:(id)sender;
-// Called when the user toggles the
-// https://www.googleapis.com/auth/userinfo.email scope.
-- (IBAction)userinfoEmailScopeToggle:(id)sender;
+// Called when the user presses the "Credentials" button.
+- (IBAction)showAuthInspector:(id)sender;
 
 @end

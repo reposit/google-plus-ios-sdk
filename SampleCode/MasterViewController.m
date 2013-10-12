@@ -20,23 +20,16 @@
 
 #import <GooglePlus/GooglePlus.h>
 
-static const int kNumViewControllers = 5;
+static const int kNumViewControllers = 4;
 static NSString * const kMenuOptions[kNumViewControllers] = {
-    @"Sign in", @"Share", @"List people", @"Write moments",
-    @"List & remove moments" };
+    @"Sign in", @"Share", @"People", @"App Activities" };
 static NSString * const kUnselectableMenuOptions[kNumViewControllers] = {
-    nil, nil, @"Sign in to list people", @"Sign in to write moments",
-    @"Sign in to list/remove moments" };
+    nil, nil, @"Sign in to list people", @"Sign in to edit app activities" };
 static NSString * const kNibNames[kNumViewControllers] = {
     @"SignInViewController",
     @"ShareViewController",
     @"ListPeopleViewController",
-    @"MomentsViewController",
-    @"ListMomentsViewController" };
-
-@interface MasterViewController ()
-- (BOOL)isSelectable:(NSIndexPath *)indexPath;
-@end
+    @"MomentsViewController" };
 
 @implementation MasterViewController
 
@@ -45,18 +38,14 @@ static NSString * const kNibNames[kNumViewControllers] = {
   self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
   if (self) {
     self.title = @"Google+ SDK Sample";
-    UIBarButtonItem *backButton = [[[UIBarButtonItem alloc]
+    UIBarButtonItem *backButton = [[UIBarButtonItem alloc]
         initWithTitle:@"Back"
                 style:UIBarButtonItemStylePlain
                target:self
-               action:@selector(backPressed)] autorelease];
+               action:@selector(backPressed)];
     self.navigationItem.backBarButtonItem = backButton;
   }
   return self;
-}
-
-- (void)dealloc {
-  [super dealloc];
 }
 
 #pragma mark - View lifecycle
@@ -94,8 +83,8 @@ static NSString * const kNibNames[kNumViewControllers] = {
       [tableView dequeueReusableCellWithIdentifier:kCellIdentifier];
   if (cell == nil) {
     cell =
-        [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
-                                reuseIdentifier:kCellIdentifier] autorelease];
+        [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault
+                               reuseIdentifier:kCellIdentifier];
     if (selectable) {
       cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     } else {
@@ -105,6 +94,7 @@ static NSString * const kNibNames[kNumViewControllers] = {
   }
   cell.textLabel.text = (selectable ? kMenuOptions : kUnselectableMenuOptions)
       [indexPath.row];
+  cell.accessibilityLabel = cell.textLabel.text;
 
   return cell;
 }
@@ -116,7 +106,7 @@ static NSString * const kNibNames[kNumViewControllers] = {
   }
   Class nibClass = NSClassFromString(kNibNames[indexPath.row]);
   UIViewController *controller =
-      [[[nibClass alloc] initWithNibName:nil bundle:nil] autorelease];
+      [[nibClass alloc] initWithNibName:nil bundle:nil];
   controller.navigationItem.title = kMenuOptions[indexPath.row];
 
   [self.navigationController pushViewController:controller animated:YES];
@@ -126,7 +116,7 @@ static NSString * const kNibNames[kNumViewControllers] = {
 
 - (BOOL)isSelectable:(NSIndexPath *)indexPath {
   if (kUnselectableMenuOptions[indexPath.row]) {
-    // To use Google+ moments, you need to sign in.
+    // To use Google+ app activities, you need to sign in.
     return [GPPSignIn sharedInstance].authentication != nil;
   }
   return YES;
