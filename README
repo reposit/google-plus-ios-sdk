@@ -9,7 +9,7 @@ Changelog  -- The versions and changes of the SDK.
 
 GooglePlus.framework/  -- The Google+ SDK framework.
 
-GooglePlus.bundle/  -- Resources that can be used in your app.
+GooglePlus.bundle/  -- Resources to be included in your app.
 
 GoogleOpenSource.framework/ -- A framework containing all the open source files
                                used by the SDK.
@@ -23,6 +23,4 @@ OpenSource/  -- Google open source files used by the SDK.
 
 SampleCode/  -- Sample code for your reference only.
                 Do not include this in your project.
-   GooglePlusSample.xcodeproj/  -- The Xcode project.
-roject.
    GooglePlusSample.xcodeproj/  -- The Xcode project.

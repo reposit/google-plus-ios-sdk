@@ -42,6 +42,8 @@
             proxyCredential = proxyCredential_,
             cookieStorageMethod = cookieStorageMethod_,
             shouldFetchInBackground = shouldFetchInBackground_,
+            allowedInsecureSchemes = allowedInsecureSchemes_,
+            allowLocalhostRequest = allowLocalhostRequest_,
             fetchHistory = fetchHistory_;
 
 - (id)init {
@@ -86,6 +88,8 @@
   fetcher.credential = self.credential;
   fetcher.proxyCredential = self.proxyCredential;
   fetcher.shouldFetchInBackground = self.shouldFetchInBackground;
+  fetcher.allowedInsecureSchemes = self.allowedInsecureSchemes;
+  fetcher.allowLocalhostRequest = self.allowLocalhostRequest;
   fetcher.authorizer = self.authorizer;
   fetcher.service = self;
 
@@ -168,7 +172,8 @@
 
     if ([host length] == 0) {
 #if DEBUG
-      NSAssert1(0, @"%@ lacks host", fetcher);
+      // Data URIs legitimately have no host, reject other hostless URLs.
+      NSAssert1([[requestURL scheme] isEqual:@"data"], @"%@ lacks host", fetcher);
 #endif
       return YES;
     }
@@ -472,7 +477,11 @@
   // Use the fetcher service for the authorization fetches if the auth
   // object supports fetcher services
   if ([authorizer_ respondsToSelector:@selector(setFetcherService:)]) {
+#if GTM_USE_SESSION_FETCHER
+    [authorizer_ setFetcherService:(id)self];
+#else
     [authorizer_ setFetcherService:self];
+#endif
   }
 }
 
@@ -488,8 +497,8 @@
   // the authorizer's dependence on the fetcher service.  Authorizers can still
   // function without a fetcher service.
   if ([authorizer_ respondsToSelector:@selector(fetcherService)]) {
-    GTMHTTPFetcherService *authFS = [authorizer_ fetcherService];
-    if (authFS == self) {
+    id authFetcherService = [authorizer_ fetcherService];
+    if (authFetcherService == self) {
       [authorizer_ setFetcherService:nil];
     }
   }

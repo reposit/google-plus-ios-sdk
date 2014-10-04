@@ -161,7 +161,8 @@ static NSString * encodeByAddingPercentEscapes(NSString *input) {
       [pasteboardData objectForKey:kVersionKey];
   NSNumber *value =
       [userPreferences objectForKey:kOpenInChromePreferenceKey];
-  return value ? [value integerValue] : kOpenInChromeNone;
+  return value ? (OpenInChromePreference)[value integerValue]
+               : kOpenInChromeNone;
 }
 
 #pragma mark - Private methods
